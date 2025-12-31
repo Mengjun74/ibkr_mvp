@@ -1,7 +1,7 @@
-from ib_insync import IB, Future, BarData, util
+from ib_insync import IB, Future, Stock, Forex, BarData, util
 from datetime import datetime
 import pandas as pd
-from ..config import TRADING_SYMBOL, TRADING_EXCHANGE, TRADING_CURRENCY
+from ..config import TRADING_SYMBOL, TRADING_SEC_TYPE, TRADING_EXCHANGE, TRADING_CURRENCY
 from ..storage.csv_store import CSVStore
 from ..storage.duckdb_store import DuckDBStore
 from ..utils import logger
@@ -9,9 +9,16 @@ from ..utils import logger
 class BarManager:
     def __init__(self, ib: IB):
         self.ib = ib
-        self.contract = Future(symbol=TRADING_SYMBOL, lastTradeDateOrContractMonth='202506', exchange=TRADING_EXCHANGE, currency=TRADING_CURRENCY)
-        # Note: Contract month hardcoded for MVP example '202506' (June 2025). 
-        # In a real app we'd resolve the front month dynamically.
+        
+        if TRADING_SEC_TYPE == "STK":
+            self.contract = Stock(symbol=TRADING_SYMBOL, exchange=TRADING_EXCHANGE, currency=TRADING_CURRENCY)
+        elif TRADING_SEC_TYPE == "CASH":
+            self.contract = Forex(pair=TRADING_SYMBOL)
+        else:
+            # Default to Future (FUT)
+            self.contract = Future(symbol=TRADING_SYMBOL, lastTradeDateOrContractMonth='202506', exchange=TRADING_EXCHANGE, currency=TRADING_CURRENCY)
+            # Note: Contract month hardcoded for MVP example '202506' (June 2025). 
+            # In a real app we'd resolve the front month dynamically.
         
         self.csv_store = CSVStore()
         self.db_store = DuckDBStore()
@@ -22,10 +29,16 @@ class BarManager:
     def qualify_contract(self):
         logger.info("Qualifying contract...")
         details = self.ib.qualifyContracts(self.contract)
+        
         if not details:
-            # Fallback for continuous contract if specific fails
-            self.contract = Future(TRADING_SYMBOL, 'CONT', TRADING_EXCHANGE, currency=TRADING_CURRENCY)
-            self.ib.qualifyContracts(self.contract)
+            if TRADING_SEC_TYPE == "FUT":
+                # Fallback for continuous contract if specific fails
+                logger.warning(f"Specific future contract failed. Trying continuous contract for {TRADING_SYMBOL}...")
+                self.contract = Future(TRADING_SYMBOL, 'CONT', TRADING_EXCHANGE, currency=TRADING_CURRENCY)
+                self.ib.qualifyContracts(self.contract)
+            else:
+                logger.error(f"Failed to qualify contract: {self.contract}")
+
         logger.info(f"Contract qualified: {self.contract}")
 
     def start_streaming(self):
