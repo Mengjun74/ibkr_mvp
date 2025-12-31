@@ -1,0 +1,20 @@
+[project]
+name = "ibkr_mvp"
+version = "0.1.0"
+description = "MVP Automated Trading Bot for IBKR with ORB Strategy and AI Filtering"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ib_insync",
+    "streamlit",
+    "duckdb",
+    "pandas",
+    "python-dotenv",
+    "google-generativeai",
+    "numpy",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
