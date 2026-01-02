@@ -89,9 +89,10 @@ class BarManager:
         
         # We want at least 4-5 hours for warmup, but also to cover today
         duration_h = max(5, hours_since_day_start)
-        duration_str = f"{duration_h} H"
+        duration_s = duration_h * 3600
+        duration_str = f"{duration_s} S"
         
-        logger.info(f"Requesting {duration_str} of historical data + streaming...")
+        logger.info(f"Requesting {duration_h} hours ({duration_str}) of historical data + streaming...")
         self.bars_list = self.ib.reqHistoricalData(
             self.contract,
             endDateTime='',
