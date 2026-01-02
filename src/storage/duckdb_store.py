@@ -186,13 +186,13 @@ class DuckDBStore:
             fill_data.get('commission')
         ))
 
-    def insert_strategy_state(self, state_data: dict):
+    def insert_strategy_state(self, ts: datetime, state_data: dict):
         self._execute_query("""
             INSERT INTO strategy_state
             (timestamp, orb_high, orb_low, ema20, atr14, current_state, active_signal_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            datetime.now(),
+            ts,
             state_data.get('orb_high'),
             state_data.get('orb_low'),
             state_data.get('ema20'),

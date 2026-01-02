@@ -80,13 +80,22 @@ class BarManager:
     def start_streaming(self):
         self.qualify_contract()
         
-        # Request historical to fill buffer (e.g. 1 day)
-        # In ib_insync, reqHistoricalData can keepUpToDate=True
-        logger.info("Requesting historical data + streaming...")
+        # Request historical to fill buffer
+        # Smart Duration: Look back at least 10 hours OR enough to cover today's first ORB
+        # To avoid replaying Jan 1st when it's Jan 2nd noon.
+        now = datetime.now()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        hours_since_day_start = int((now - day_start).total_seconds() / 3600) + 1
+        
+        # We want at least 4-5 hours for warmup, but also to cover today
+        duration_h = max(5, hours_since_day_start)
+        duration_str = f"{duration_h} H"
+        
+        logger.info(f"Requesting {duration_str} of historical data + streaming...")
         self.bars_list = self.ib.reqHistoricalData(
             self.contract,
             endDateTime='',
-            durationStr='1 D',
+            durationStr=duration_str,
             barSizeSetting='1 min',
             whatToShow='TRADES',
             useRTH=False,

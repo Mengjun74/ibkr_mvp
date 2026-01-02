@@ -48,9 +48,16 @@ START_TIME = _parse_time(os.getenv("START_TIME"), 6, 30)
 END_TIME = _parse_time(os.getenv("END_TIME"), 10, 30)
 FORCE_CLOSE_TIME = _parse_time(os.getenv("FORCE_CLOSE_TIME"), 10, 25)
 
+# Multi-ORB Support: comma separated list of times, e.g. "06:30,09:30,12:30,14:30"
+MULTI_ORB_STARTS = [
+    _parse_time(t.strip(), 0, 0) 
+    for t in os.getenv("MULTI_ORB_STARTS", "").split(",") 
+    if t.strip()
+] or [START_TIME] # Fallback to single START_TIME
+
 # Risk Config
 MAX_POSITION = 1
-MAX_TRADES_DAILY = 8
+MAX_TRADES_DAILY = int(os.getenv("MAX_TRADES_DAILY", "8"))
 MAX_LOSS_DAILY = -60.0
 MAX_LOSS_PER_TRADE = -12.0
 COOLDOWN_MINUTES = 15

@@ -20,17 +20,12 @@ def run_query(query: str, as_df: bool = True):
     
     for i in range(max_retries):
         try:
-            # Connect, Run, Close
-            # read_only=True allows concurrent reads if no writer? 
-            # But we want to avoid locking writer.
-            # duckdb.connect() context manager automatically closes? Yes.
             with duckdb.connect(db_path, read_only=True) as conn:
                 res = conn.execute(query)
                 if as_df:
                     return res.df()
                 return res.fetchall()
         except duckdb.IOException:
-            # Locked. Wait and retry.
             time.sleep(0.1 * (i + 1))
         except Exception as e:
             st.error(f"DB Error: {e}")
@@ -39,23 +34,25 @@ def run_query(query: str, as_df: bool = True):
     return pd.DataFrame() if as_df else []
 
 def load_data():
-    # Recent Bars
-    bars = run_query("SELECT * FROM bars_1m ORDER BY time DESC LIMIT 100")
+    # Recent Bars - show full day (1000 mins)
+    bars = run_query("SELECT * FROM bars_1m ORDER BY time DESC LIMIT 1000")
     if not bars.empty: bars = bars.sort_values('time')
     
     # Recent Signals
-    signals = run_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 20")
+    signals = run_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 50")
     
-    # Strategy State
+    # Strategy State - latest for metrics
     state = run_query("SELECT * FROM strategy_state ORDER BY timestamp DESC LIMIT 1")
     
-    # Fills
-    fills = run_query("SELECT * FROM fills ORDER BY time DESC LIMIT 20")
+    # Historical State - for indicators
+    state_hist = run_query("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 1000")
+    if not state_hist.empty: state_hist = state_hist.sort_values('timestamp')
     
-    # Orders
-    orders = run_query("SELECT * FROM orders ORDER BY created_at DESC LIMIT 20")
+    # Fills & Orders
+    fills = run_query("SELECT * FROM fills ORDER BY time DESC LIMIT 50")
+    orders = run_query("SELECT * FROM orders ORDER BY created_at DESC LIMIT 50")
     
-    return bars, signals, state, fills, orders
+    return bars, signals, state, state_hist, fills, orders
 
 # Sidebar
 st.sidebar.title("Controls")
@@ -84,7 +81,7 @@ if st.sidebar.button("RESET KILL SWITCH"):
 # Main Content
 st.title("🤖 Algo Trading Dashboard (MES)")
 
-bars_df, signals_df, state_df, fills_df, orders_df = load_data()
+bars_df, signals_df, state_df, state_hist_df, fills_df, orders_df = load_data()
 
 # Top Metrics
 col1, col2, col3, col4 = st.columns(4)
@@ -114,49 +111,49 @@ if not bars_df.empty:
         name='Price'
     ))
     
-    # 2. Indicators from State History
-    state_hist = run_query("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 300")
-    if not state_hist.empty:
-        state_hist = state_hist.sort_values('timestamp')
-        
-        # EMA20
+    # 2. Indicators from State History (Aligned to Market Time)
+    if not state_hist_df.empty:
+        # EMA20 - Aligned to market timestamp
         fig.add_trace(go.Scatter(
-            x=state_hist['timestamp'], 
-            y=state_hist['ema20'], 
+            x=state_hist_df['timestamp'], 
+            y=state_hist_df['ema20'], 
             mode='lines', 
             name='EMA 20',
-            line=dict(color='orange', width=1.5)
+            line=dict(color='orange', width=2)
         ))
         
-        # ORB Levels (as lines)
-        # Note: We only show them if they are set (not null)
-        valid_orb = state_hist.dropna(subset=['orb_high'])
+        # 3. ORB Levels (as scatter lines that can reset)
+        valid_orb = state_hist_df.dropna(subset=['orb_high'])
         if not valid_orb.empty:
+            # High
             fig.add_trace(go.Scatter(
-                x=valid_orb['timestamp'], 
-                y=valid_orb['orb_high'], 
+                x=state_hist_df['timestamp'], 
+                y=state_hist_df['orb_high'], 
                 mode='lines', 
                 name='ORB High',
-                line=dict(color='green', dash='dash', width=1)
+                line=dict(color='green', dash='dash', width=1),
+                connectgaps=False # Reset visible when values jump or become None
             ))
+            # Low
             fig.add_trace(go.Scatter(
-                x=valid_orb['timestamp'], 
-                y=valid_orb['orb_low'], 
+                x=state_hist_df['timestamp'], 
+                y=state_hist_df['orb_low'], 
                 mode='lines', 
                 name='ORB Low',
-                line=dict(color='red', dash='dash', width=1)
+                line=dict(color='red', dash='dash', width=1),
+                connectgaps=False
             ))
 
     # Layout optimization
     fig.update_layout(
         xaxis_rangeslider_visible=False,
-        height=600,
+        height=700,
         margin=dict(l=10, r=10, t=30, b=10),
-        template="plotly_dark", # Deepmind style
+        template="plotly_dark",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 else:
     st.subheader("Market Data & Indicators")
     st.info("No market data found in database. Is the bot running?")
