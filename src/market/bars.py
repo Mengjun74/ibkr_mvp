@@ -93,22 +93,35 @@ class BarManager:
             keepUpToDate=True
         )
         
-        # Persist initial history
-        logger.info(f"Received {len(self.bars_list)} historical bars. Saving to DB...")
-        self.update_df(self.bars_list)
+        # Replay history to catch up strategy state
+        full_df = util.df(self.bars_list)
+        if full_df is not None and not full_df.empty:
+            full_df.set_index('date', inplace=True)
+            logger.info(f"Replaying {len(full_df)} historical bars to catch up strategy...")
+            
+            for i in range(len(full_df)):
+                # Incrementally populate self.df so get_latest_bars() works correctly during replay
+                self.df = full_df.iloc[:i+1]
+                
+                last_row = full_df.iloc[i]
+                bar_dict = {
+                    'time': last_row.name,
+                    'open': last_row['open'],
+                    'high': last_row['high'],
+                    'low': last_row['low'],
+                    'close': last_row['close'],
+                    'volume': last_row['volume']
+                }
+                
+                # Persist
+                self.csv_store.write_bar(bar_dict)
+                self.db_store.insert_bar(bar_dict)
+                
+                # Notify strategies
+                for callback in self.on_bar_update:
+                    callback(bar_dict, replaying=True)
         
-        for bar in self.bars_list:
-             bar_dict = {
-                'time': bar.date,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': bar.volume
-            }
-             self.csv_store.write_bar(bar_dict)
-             self.db_store.insert_bar(bar_dict)
-             
+        # Connect to live updates
         self.bars_list.updateEvent += self._on_bar_update_event
 
     def _on_bar_update_event(self, bars, has_new_bar):
@@ -133,7 +146,7 @@ class BarManager:
             
             # Notify strategies
             for callback in self.on_bar_update:
-                callback(bar_dict)
+                callback(bar_dict, replaying=False)
 
     def update_df(self, bars):
         df = util.df(bars)

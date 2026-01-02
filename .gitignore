@@ -18,3 +18,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Project data
+data/
+logs/

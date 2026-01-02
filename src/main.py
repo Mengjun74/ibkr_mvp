@@ -45,10 +45,10 @@ async def main():
     
     # 6. Wiring
     # Bar Update -> Strategy.on_bar
-    def on_bar_wrapper(bar_dict):
+    def on_bar_wrapper(bar_dict, replaying=False):
         # We need the full dataframe for strategy
         df = bar_manager.get_latest_bars(100)
-        signal = strategy.on_bar(df)
+        signal = strategy.on_bar(df, replaying=replaying)
         
         if signal:
             logger.info(f"SIGNAL GENERATED: {signal['base_signal']} @ {signal['entry_price']}")

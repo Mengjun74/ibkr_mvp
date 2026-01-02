@@ -28,10 +28,10 @@ class ORBStrategy(BaseStrategy):
         self.atr_period = 14
         self.atr_min = 0.6
         self.atr_max = 4.0
-        self.orb_start = time(6, 30)
-        self.orb_end = time(6, 45)
-        self.trading_start = time(6, 45)
-        self.trading_end = time(10, 15)
+        self.orb_start = START_TIME
+        self.orb_end = (datetime.combine(datetime.today(), START_TIME) + timedelta(minutes=15)).time()
+        self.trading_start = self.orb_end
+        self.trading_end = FORCE_CLOSE_TIME
         
     def _reset_daily(self, current_date):
         logger.info(f"Resetting Strategy for {current_date}")
@@ -41,7 +41,7 @@ class ORBStrategy(BaseStrategy):
         self.daily_reset_date = current_date
         self.active_position = None
 
-    def on_bar(self, df: pd.DataFrame) -> Optional[Dict[str, Any]]:
+    def on_bar(self, df: pd.DataFrame, replaying: bool = False) -> Optional[Dict[str, Any]]:
         if df.empty:
             return None
             
@@ -104,32 +104,39 @@ class ORBStrategy(BaseStrategy):
              # Generate Signal checks
              signal = self._check_entry(latest, ema20, atr14)
              if signal:
-                 # Add AI Filter
-                 context = {
-                     'time': str(current_time),
-                     'signal': signal['base_signal'],
-                     'market_data': {
-                         'close': latest['close'],
-                         'atr14': atr14,
-                         'ema20': ema20,
-                         'dist_orb_high': latest['close'] - self.orb_high,
-                         'dist_orb_low': self.orb_low - latest['close']
-                     },
-                     'pnl': 0.0, # Strategy doesn't track pnl directly yet, would need link to RiskManager
-                     'risk_state': {} 
-                 }
-                 
-                 ai_result = self.ai_filter.analyze_signal(context)
-                 signal['ai_decision'] = ai_result['decision']
-                 signal['ai_rationale'] = ai_result['rationale']
-                 signal['raw_json'] = ai_result.get('raw_json', '')
-                 
-                 if signal['ai_decision'] == 'DENY':
-                     logger.info(f"Signal Denied by AI: {ai_result['rationale']}")
-                     signal = None
-                 else:
-                     logger.info(f"Signal Approved by AI ({signal['ai_decision']})")
-                     state_log['active_signal_id'] = signal['signal_id']
+                  # Add AI Filter
+                  if replaying:
+                      # Skip AI during replay to save quota and avoid old order triggers
+                      self.db_store.insert_strategy_state(state_log)
+                      return None
+
+                  context = {
+                      'time': str(current_time),
+                      'signal': signal['base_signal'],
+                      'market_data': {
+                          'close': latest['close'],
+                          'atr14': atr14,
+                          'ema20': ema20,
+                          'dist_orb_high': latest['close'] - self.orb_high,
+                          'dist_orb_low': self.orb_low - latest['close']
+                      },
+                      'pnl': 0.0,
+                      'risk_state': {} 
+                  }
+                  
+                  ai_result = self.ai_filter.analyze_signal(context)
+                  signal['ai_decision'] = ai_result['decision']
+                  signal['ai_rationale'] = ai_result['rationale']
+                  signal['raw_json'] = ai_result.get('raw_json', '')
+                  
+                  if signal['ai_decision'] == 'DENY':
+                      logger.info(f"Signal Denied by AI: {ai_result['rationale']}")
+                      signal = None
+                  else:
+                      logger.info(f"Signal Approved by AI ({signal['ai_decision']})")
+                      state_log['active_signal_id'] = signal['signal_id']
+                      # Explicitly save signal to DB for dashboard
+                      self.db_store.insert_signal(signal)
 
              # Write state
              self.db_store.insert_strategy_state(state_log)

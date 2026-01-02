@@ -9,7 +9,7 @@ import sys
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-from src.config import DATA_DIR, LOG_DIR, KILL_SWITCH_FILE
+from src.config import DATA_DIR, LOG_DIR, KILL_SWITCH_FILE, TRADING_SYMBOL
 
 st.set_page_config(page_title="IBKR Algo Dashboard", layout="wide")
 
@@ -95,37 +95,81 @@ last_state = state_df.iloc[0] if not state_df.empty else None
 status = last_state['current_state'] if last_state is not None else "UNKNOWN"
 col2.metric("Strategy Status", status)
 
+import plotly.graph_objects as go
+
 # Charts
-st.subheader("Market Data & Indicators")
-if not bars_df.empty and last_state is not None:
-    # Overlay lines
-    # Streamlit line chart is simple, let's use it for MVP
-    chart_data = bars_df[['time', 'close']].set_index('time')
+if not bars_df.empty:
+    st.subheader(f"Interactive Chart ({TRADING_SYMBOL})")
     
-    # Add ORB levels if available in state or bars (bars need computing)
-    # We display what the strategy SAW (from state log)
-    if 'orb_high' in last_state and pd.notnull(last_state['orb_high']):
-        chart_data['orb_high'] = last_state['orb_high']
-        chart_data['orb_low'] = last_state['orb_low']
+    # Create figure
+    fig = go.Figure()
     
-    if 'ema20' in last_state:
-        # This only shows LATEST ema. Ideally we want historical EMA on chart.
-        # DB strategy_state has history? Yes.
-        # Let's fetch history of state
-        # Let's fetch history of state
-        state_hist = run_query("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 100")
-        if not state_hist.empty:
-            state_hist = state_hist.sort_values('timestamp')
+    # 1. Candlestick
+    fig.add_trace(go.Candlestick(
+        x=bars_df['time'],
+        open=bars_df['open'],
+        high=bars_df['high'],
+        low=bars_df['low'],
+        close=bars_df['close'],
+        name='Price'
+    ))
+    
+    # 2. Indicators from State History
+    state_hist = run_query("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 300")
+    if not state_hist.empty:
+        state_hist = state_hist.sort_values('timestamp')
         
-        # Merge lightly for visualization? Or just plot Close
-        st.line_chart(chart_data)
+        # EMA20
+        fig.add_trace(go.Scatter(
+            x=state_hist['timestamp'], 
+            y=state_hist['ema20'], 
+            mode='lines', 
+            name='EMA 20',
+            line=dict(color='orange', width=1.5)
+        ))
+        
+        # ORB Levels (as lines)
+        # Note: We only show them if they are set (not null)
+        valid_orb = state_hist.dropna(subset=['orb_high'])
+        if not valid_orb.empty:
+            fig.add_trace(go.Scatter(
+                x=valid_orb['timestamp'], 
+                y=valid_orb['orb_high'], 
+                mode='lines', 
+                name='ORB High',
+                line=dict(color='green', dash='dash', width=1)
+            ))
+            fig.add_trace(go.Scatter(
+                x=valid_orb['timestamp'], 
+                y=valid_orb['orb_low'], 
+                mode='lines', 
+                name='ORB Low',
+                line=dict(color='red', dash='dash', width=1)
+            ))
+
+    # Layout optimization
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        height=600,
+        margin=dict(l=10, r=10, t=30, b=10),
+        template="plotly_dark", # Deepmind style
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.subheader("Market Data & Indicators")
+    st.info("No market data found in database. Is the bot running?")
 
 # Signals & AI
 col_sig, col_ai = st.columns(2)
 
 with col_sig:
     st.subheader("Recent Signals")
-    st.dataframe(signals_df[['timestamp', 'direction', 'entry_price', 'ai_decision']])
+    if not signals_df.empty:
+        st.dataframe(signals_df[['timestamp', 'direction', 'entry_price', 'ai_decision']])
+    else:
+        st.info("No signals generated yet.")
 
 with col_ai:
     st.subheader("AI Rationale (Latest)")

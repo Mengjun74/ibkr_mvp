@@ -7,3 +7,4 @@ google-genai
 numpy>=1.26.0
 watchdog>=3.0.0
 pytz
+plotly>=5.18.0

@@ -23,7 +23,7 @@ LOG_DIR.mkdir(exist_ok=True)
 # IBKR Config
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.getenv("IB_PORT", "4002"))
-IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "1"))
+IB_CLIENT_ID = int(os.getenv("IB_CLIENT_ID", "10"))
 IB_ACCOUNT = os.getenv("IB_ACCOUNT", "")
 
 # AI Config
@@ -36,9 +36,17 @@ TRADING_EXCHANGE = os.getenv("TRADING_EXCHANGE", "GLOBEX")
 TRADING_CURRENCY = os.getenv("TRADING_CURRENCY", "USD")
 
 # Time Config
-START_TIME = datetime.time(6, 30)
-END_TIME = datetime.time(10, 30)
-FORCE_CLOSE_TIME = datetime.time(10, 25)
+def _parse_time(env_val: str, default_h: int, default_m: int):
+    try:
+        if not env_val:
+            return datetime.time(default_h, default_m)
+        return datetime.datetime.strptime(env_val, "%H:%M").time()
+    except Exception:
+        return datetime.time(default_h, default_m)
+
+START_TIME = _parse_time(os.getenv("START_TIME"), 6, 30)
+END_TIME = _parse_time(os.getenv("END_TIME"), 10, 30)
+FORCE_CLOSE_TIME = _parse_time(os.getenv("FORCE_CLOSE_TIME"), 10, 25)
 
 # Risk Config
 MAX_POSITION = 1
