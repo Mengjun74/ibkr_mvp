@@ -16,15 +16,51 @@ class BarManager:
             self.contract = Forex(pair=TRADING_SYMBOL)
         else:
             # Default to Future (FUT)
-            self.contract = Future(symbol=TRADING_SYMBOL, lastTradeDateOrContractMonth='202506', exchange=TRADING_EXCHANGE, currency=TRADING_CURRENCY)
-            # Note: Contract month hardcoded for MVP example '202506' (June 2025). 
-            # In a real app we'd resolve the front month dynamically.
+            contract_month = self._get_futures_month()
+            logger.info(f"Using Calculated Contract Month: {contract_month}")
+            self.contract = Future(symbol=TRADING_SYMBOL, lastTradeDateOrContractMonth=contract_month, exchange=TRADING_EXCHANGE, currency=TRADING_CURRENCY)
         
         self.csv_store = CSVStore()
         self.db_store = DuckDBStore()
         self.bars = []
         self.df = pd.DataFrame()
         self.on_bar_update = [] # Callbacks
+
+    def _get_futures_month(self) -> str:
+        """
+        Calculates the front expirations for equity index futures (H, M, U, Z).
+        Expires 3rd Friday of March (3), June (6), Sep (9), Dec (12).
+        Simplification: If today > 15th of expire month, roll to next.
+        """
+        now = datetime.now()
+        year = now.year
+        month = now.month
+        
+        # Quarterly months
+        quarters = [3, 6, 9, 12]
+        
+        target_month = None
+        target_year = year
+        
+        for q in quarters:
+            if month < q:
+                target_month = q
+                break
+            elif month == q:
+                # If we are in the expire month, check if roughly before expiration.
+                # Expiration is 3rd Friday. ~21st max. 
+                # To be safe, if day > 10, let's roll? Or assume liquid until near end.
+                # Let's say if day > 14 (roughly 2nd full week), we look to next.
+                if now.day < 15:
+                   target_month = q
+                   break
+        
+        if target_month is None:
+            # Next year March
+            target_month = 3
+            target_year = year + 1
+            
+        return f"{target_year}{target_month:02d}"
 
     def qualify_contract(self):
         logger.info("Qualifying contract...")
@@ -57,6 +93,22 @@ class BarManager:
             keepUpToDate=True
         )
         
+        # Persist initial history
+        logger.info(f"Received {len(self.bars_list)} historical bars. Saving to DB...")
+        self.update_df(self.bars_list)
+        
+        for bar in self.bars_list:
+             bar_dict = {
+                'time': bar.date,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume
+            }
+             self.csv_store.write_bar(bar_dict)
+             self.db_store.insert_bar(bar_dict)
+             
         self.bars_list.updateEvent += self._on_bar_update_event
 
     def _on_bar_update_event(self, bars, has_new_bar):
@@ -84,7 +136,12 @@ class BarManager:
                 callback(bar_dict)
 
     def update_df(self, bars):
-        self.df = util.df(bars)
+        df = util.df(bars)
+        if df is None:
+            self.df = pd.DataFrame()
+        else:
+            self.df = df
+            
         if not self.df.empty:
             self.df.set_index('date', inplace=True)
 

@@ -13,30 +13,47 @@ from src.config import DATA_DIR, LOG_DIR, KILL_SWITCH_FILE
 
 st.set_page_config(page_title="IBKR Algo Dashboard", layout="wide")
 
-# Database Connection
-@st.cache_resource
-def get_db_connection():
-    db_path = DATA_DIR / "db" / "trading.duckdb"
-    return duckdb.connect(str(db_path), read_only=True)
+# Database Connection - Transient with Retry
+def run_query(query: str, as_df: bool = True):
+    db_path = str(DATA_DIR / "db" / "trading.duckdb")
+    max_retries = 5
+    
+    for i in range(max_retries):
+        try:
+            # Connect, Run, Close
+            # read_only=True allows concurrent reads if no writer? 
+            # But we want to avoid locking writer.
+            # duckdb.connect() context manager automatically closes? Yes.
+            with duckdb.connect(db_path, read_only=True) as conn:
+                res = conn.execute(query)
+                if as_df:
+                    return res.df()
+                return res.fetchall()
+        except duckdb.IOException:
+            # Locked. Wait and retry.
+            time.sleep(0.1 * (i + 1))
+        except Exception as e:
+            st.error(f"DB Error: {e}")
+            return pd.DataFrame() if as_df else []
+            
+    return pd.DataFrame() if as_df else []
 
 def load_data():
-    conn = get_db_connection()
-    
     # Recent Bars
-    bars = conn.execute("SELECT * FROM bars_1m ORDER BY time DESC LIMIT 100").df().sort_values('time')
+    bars = run_query("SELECT * FROM bars_1m ORDER BY time DESC LIMIT 100")
+    if not bars.empty: bars = bars.sort_values('time')
     
     # Recent Signals
-    signals = conn.execute("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 20").df()
+    signals = run_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 20")
     
     # Strategy State
-    state = conn.execute("SELECT * FROM strategy_state ORDER BY timestamp DESC LIMIT 1").df()
+    state = run_query("SELECT * FROM strategy_state ORDER BY timestamp DESC LIMIT 1")
     
     # Fills
-    fills = conn.execute("SELECT * FROM fills ORDER BY time DESC LIMIT 20").df()
+    fills = run_query("SELECT * FROM fills ORDER BY time DESC LIMIT 20")
     
-    # Orders (Active) -> Requires connecting to IB or inferring from DB. 
-    # For MVP dashboard DB view, we show recent orders
-    orders = conn.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 20").df()
+    # Orders
+    orders = run_query("SELECT * FROM orders ORDER BY created_at DESC LIMIT 20")
     
     return bars, signals, state, fills, orders
 
@@ -95,8 +112,10 @@ if not bars_df.empty and last_state is not None:
         # This only shows LATEST ema. Ideally we want historical EMA on chart.
         # DB strategy_state has history? Yes.
         # Let's fetch history of state
-        conn = get_db_connection()
-        state_hist = conn.execute("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 100").df().sort_values('timestamp')
+        # Let's fetch history of state
+        state_hist = run_query("SELECT timestamp, orb_high, orb_low, ema20 FROM strategy_state ORDER BY timestamp DESC LIMIT 100")
+        if not state_hist.empty:
+            state_hist = state_hist.sort_values('timestamp')
         
         # Merge lightly for visualization? Or just plot Close
         st.line_chart(chart_data)
