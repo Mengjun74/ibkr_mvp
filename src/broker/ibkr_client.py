@@ -18,6 +18,17 @@ class IBKRClient:
             logger.error(f"Failed to connect to IBKR: {e}")
             self.connected = False
             raise
+    
+    async def connect_async(self):
+        try:
+            logger.info(f"Connecting to IBKR (Async) at {IB_HOST}:{IB_PORT} id={IB_CLIENT_ID}")
+            await self.ib.connectAsync(IB_HOST, IB_PORT, clientId=IB_CLIENT_ID)
+            self.connected = True
+            logger.info("Connected to IBKR (Async)")
+        except Exception as e:
+            logger.error(f"Failed to connect to IBKR (Async): {e}")
+            self.connected = False
+            raise
 
     def disconnect(self):
         if self.ib.isConnected():

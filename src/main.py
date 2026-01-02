@@ -1,5 +1,7 @@
 import asyncio
 import sys
+import nest_asyncio
+nest_asyncio.apply()
 import logging
 from pathlib import Path
 
@@ -27,7 +29,7 @@ async def main():
     
     # 2. Connect
     try:
-        ib_client.connect()
+        await ib_client.connect_async()
     except Exception:
         logger.critical("Could not connect to IBKR. Exiting.")
         return
@@ -60,15 +62,10 @@ async def main():
     # 8. Keep Alive
     logger.info("Bot Running. Press Ctrl+C to stop.")
     try:
-        # ib_insync's ib.run() is blocking, but we are in async main.
-        # We should use ib.run() if not in async, or await ib.runAsync() ??
-        # ib_insync 'run' method starts the loop. If we are in async def, we assume loop is running?
-        # Standard: use ib.run() at top level if synchronous. 
-        # Or await asyncio.sleep() loop here?
-        # Since we are already in asyncio.run(main()), let's just keep alive.
+        # ib_insync on asyncio loop.
+        # We just need to keep the loop running.
         while True:
             await asyncio.sleep(1)
-            ib_client.ib.sleep(1) # Pump events
             
     except KeyboardInterrupt:
         logger.info("Stopping...")

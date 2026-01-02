@@ -1,7 +1,7 @@
 import os
 import json
 import datetime
-import google.generativeai as genai
+from google import genai
 from typing import Dict, Any, Optional
 
 from ..config import GEMINI_API_KEY
@@ -12,20 +12,12 @@ class GeminiFilter:
         self.api_key = GEMINI_API_KEY
         self.enabled = bool(self.api_key)
         self.last_call_time = None
-        self.model = None
+        self.client = None
+        self.model_name = "gemini-1.5-flash"
         
         if self.enabled:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-2.0-flash-exp') # Use 2.0 Flash as requested/implied or fallback
-            # Note: Prompt asked for gemini-2.5-flash but usually 1.5-flash or 2.0-flash is valid. 
-            # I will use 'gemini-1.5-flash' as a safe default or 'gemini-2.0-flash-exp' if available. 
-            # Prompt actually said 'gemini-2.5-flash', let's assume user meant 1.5 or upcoming.
-            # I will stick to 'gemini-1.5-flash' for stability unless user insists, 
-            # but user prompt explicitly said "Gemini 2.5 Flash". 
-            # I will try to respect that string in model creation, but warn if it might fail.
-            # actually better to use a standard one for MVP to ensure it works. 
-            # I will use "gemini-1.5-flash" as it is the current standard fast model.
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            # New SDK initialization
+            self.client = genai.Client(api_key=self.api_key)
 
     def analyze_signal(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -59,18 +51,21 @@ class GeminiFilter:
             
             prompt = self._construct_prompt(context)
             
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2, # Low temp for deterministic logic
-                    max_output_tokens=500,
-                    response_mime_type="application/json"
-                ),
-                request_options={"timeout": 6.0} # 6s timeout
+            # New SDK call
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config={
+                    'temperature': 0.2,
+                    'max_output_tokens': 500,
+                    'response_mime_type': 'application/json'
+                }
             )
             
-            result_json = json.loads(response.text)
-            result_json['raw_json'] = response.text
+            # Response handling might differ slightly, usually response.text
+            result_text = response.text
+            result_json = json.loads(result_text)
+            result_json['raw_json'] = result_text
             
             # validate fields
             if result_json.get('decision') not in ['ALLOW', 'DENY', 'REDUCE_RISK']:
