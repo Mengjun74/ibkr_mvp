@@ -1,6 +1,6 @@
 # IBKR Trading Bot MVP
 
-A Minimum Viable Product (MVP) automated trading bot for CME MES futures using Interactive Brokers (IBKR) Gateway, Python, and Streamlit. Features an ORB strategy, AI-based filtering (Gemini), and a real-time dashboard.
+A Minimum Viable Product (MVP) automated trading bot for CME MES futures and Stocks using Interactive Brokers (IBKR) Gateway, Python, and Streamlit. Features an ORB strategy, AI-based filtering (Gemini), and a real-time dashboard.
 
 ## Prerequisites
 
@@ -24,6 +24,19 @@ A Minimum Viable Product (MVP) automated trading bot for CME MES futures using I
     cp .env.example .env
     ```
     - Edit `.env` and set your `GEMINI_API_KEY` and `IB_ACCOUNT` (Paper account, e.g., DU...).
+    - **Asset Configuration**:
+      - **Futures (Default)**:
+        ```bash
+        TRADING_SYMBOL=MES
+        TRADING_SEC_TYPE=FUT
+        TRADING_EXCHANGE=GLOBEX
+        ```
+      - **Stocks (Example)**:
+        ```bash
+        TRADING_SYMBOL=AAPL
+        TRADING_SEC_TYPE=STK
+        TRADING_EXCHANGE=SMART
+        ```
 
 ## Usage
 
