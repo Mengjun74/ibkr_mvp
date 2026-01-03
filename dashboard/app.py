@@ -88,9 +88,21 @@ col1, col2, col3, col4 = st.columns(4)
 current_price = bars_df['close'].iloc[-1] if not bars_df.empty else 0
 col1.metric("Current Price", f"{current_price:.2f}")
 
-last_state = state_df.iloc[0] if not state_df.empty else None
-status = last_state['current_state'] if last_state is not None else "UNKNOWN"
+if not state_df.empty:
+    last_state = state_df.iloc[0]
+    status = last_state.get('current_state', 'UNKNOWN')
+    active_win = last_state.get('active_window', 'N/A')
+    orb_h = last_state.get('orb_high')
+    orb_l = last_state.get('orb_low')
+else:
+    status = "WAITING"
+    active_win = "N/A"
+    orb_h = None
+    orb_l = None
+
 col2.metric("Strategy Status", status)
+col3.metric("Session", str(active_win))
+col4.metric("Current ORB", f"{orb_l:.2f} - {orb_h:.2f}" if orb_l and orb_h else "N/A")
 
 import plotly.graph_objects as go
 
@@ -122,27 +134,7 @@ if not bars_df.empty:
             line=dict(color='orange', width=2)
         ))
         
-        # 3. ORB Levels (as scatter lines that can reset)
-        valid_orb = state_hist_df.dropna(subset=['orb_high'])
-        if not valid_orb.empty:
-            # High
-            fig.add_trace(go.Scatter(
-                x=state_hist_df['timestamp'], 
-                y=state_hist_df['orb_high'], 
-                mode='lines', 
-                name='ORB High',
-                line=dict(color='green', dash='dash', width=1),
-                connectgaps=False # Reset visible when values jump or become None
-            ))
-            # Low
-            fig.add_trace(go.Scatter(
-                x=state_hist_df['timestamp'], 
-                y=state_hist_df['orb_low'], 
-                mode='lines', 
-                name='ORB Low',
-                line=dict(color='red', dash='dash', width=1),
-                connectgaps=False
-            ))
+        # ORB Levels removed from chart as requested.
 
     # Layout optimization
     fig.update_layout(

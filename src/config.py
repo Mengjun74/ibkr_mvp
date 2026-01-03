@@ -40,6 +40,10 @@ def _parse_time(env_val: str, default_h: int, default_m: int):
     try:
         if not env_val:
             return datetime.time(default_h, default_m)
+        # Handle H:M or HH:M
+        if ":" in env_val:
+            h, m = env_val.split(":")
+            return datetime.time(int(h), int(m))
         return datetime.datetime.strptime(env_val, "%H:%M").time()
     except Exception:
         return datetime.time(default_h, default_m)
@@ -49,11 +53,15 @@ END_TIME = _parse_time(os.getenv("END_TIME"), 10, 30)
 FORCE_CLOSE_TIME = _parse_time(os.getenv("FORCE_CLOSE_TIME"), 10, 25)
 
 # Multi-ORB Support: comma separated list of times, e.g. "06:30,09:30,12:30,14:30"
+_multi_env = os.getenv("MULTI_ORB_STARTS", "")
 MULTI_ORB_STARTS = [
     _parse_time(t.strip(), 0, 0) 
-    for t in os.getenv("MULTI_ORB_STARTS", "").split(",") 
+    for t in _multi_env.split(",") 
     if t.strip()
 ] or [START_TIME] # Fallback to single START_TIME
+
+# We'll use a print because logger might not be fully configured yet here
+print(f"DEBUG: MULTI_ORB_STARTS env='{_multi_env}' -> parsed={MULTI_ORB_STARTS}")
 
 # Risk Config
 MAX_POSITION = 1

@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-from src.config import IB_HOST, IB_PORT, IB_CLIENT_ID
+from src.config import IB_HOST, IB_PORT, IB_CLIENT_ID, MAX_TRADES_DAILY
 from src.utils import logger
 from src.broker.ibkr_client import IBKRClient
 from src.market.bars import BarManager
@@ -46,15 +46,29 @@ async def main():
     # 6. Wiring
     # Bar Update -> Strategy.on_bar
     def on_bar_wrapper(bar_dict, replaying=False):
-        # We need the full dataframe for strategy
-        df = bar_manager.get_latest_bars(100)
-        signal = strategy.on_bar(df, replaying=replaying)
-        
-        if signal:
-            logger.info(f"SIGNAL GENERATED: {signal['base_signal']} @ {signal['entry_price']}")
-            executor.process_signal(signal, bar_manager.contract)
-    
+        try:
+            # We need the full dataframe for strategy
+            df = bar_manager.get_latest_bars(100)
+            signal = strategy.on_bar(df, replaying=replaying)
+            
+            if signal:
+                logger.info(f"SIGNAL GENERATED: {signal['base_signal']} @ {signal['entry_price']} (ORB: {signal['orb_low']} - {signal['orb_high']})")
+                executor.process_signal(signal, bar_manager.contract)
+        except Exception as e:
+            logger.error(f"Error in on_bar_wrapper: {e}")
+            if not replaying: 
+                import traceback
+                logger.error(traceback.format_exc())
+
     bar_manager.on_bar_update.append(on_bar_wrapper)
+    
+    # Summary Log
+    logger.info("="*50)
+    logger.info(f"BOT READY - Multi-ORB Schedule: {strategy.orb_starts}")
+    logger.info(f"Target Symbol: {bar_manager.contract.symbol} ({bar_manager.contract.secType})")
+    logger.info(f"Trading End: {strategy.trading_end}")
+    logger.info(f"Max Daily Trades Limit: {MAX_TRADES_DAILY}")
+    logger.info("="*50)
     
     # 7. Start Streaming
     bar_manager.start_streaming()

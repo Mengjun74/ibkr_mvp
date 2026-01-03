@@ -133,8 +133,10 @@ class BarManager:
         
         # Connect to live updates
         self.bars_list.updateEvent += self._on_bar_update_event
+        logger.info(f"Live data stream connected. Waiting for real-time updates...")
 
     def _on_bar_update_event(self, bars, has_new_bar):
+        logger.info(f"_on_bar_update_event called: has_new_bar={has_new_bar}, bars_count={len(bars) if bars else 0}")
         if has_new_bar:
             last_bar = bars[-1]
             # Process new bar

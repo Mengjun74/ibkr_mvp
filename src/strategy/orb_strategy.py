@@ -30,6 +30,8 @@ class ORBStrategy(BaseStrategy):
         
         # Windows
         self.orb_starts = sorted(MULTI_ORB_STARTS)
+        logger.info(f"ORB Strategy initialized with {len(self.orb_starts)} windows: {self.orb_starts}")
+        logger.info(f"Trading End / Force Close time set to: {FORCE_CLOSE_TIME}")
         self.trading_end = FORCE_CLOSE_TIME
         
     def _reset_daily(self, current_date):
@@ -61,11 +63,8 @@ class ORBStrategy(BaseStrategy):
                 break
         
         if active_window_start and active_window_start != self.current_window_start:
-            # Only log if it's the current "real-time" window or if we are not replaying
-            # This avoids spamming 6:30 AM/9:30 AM logs when starting at noon.
-            now_time = datetime.now().time()
-            if not replaying or (active_window_start >= now_time):
-                logger.info(f"New ORB Window detected: {active_window_start}. Resetting levels.")
+            prefix = "[REPLAY] " if replaying else ""
+            logger.info(f"{prefix}New ORB Window detection: {active_window_start}. Cleared previous levels {self.orb_high}/{self.orb_low}")
             
             self.orb_high = None
             self.orb_low = None
@@ -98,7 +97,8 @@ class ORBStrategy(BaseStrategy):
             'ema20': ema20,
             'atr14': atr14,
             'status': 'WAITING',
-            'signal_id': None
+            'signal_id': None,
+            'active_window': self.current_window_start
         }
 
         if not active_window_start:
@@ -120,49 +120,59 @@ class ORBStrategy(BaseStrategy):
             state_log['orb_high'] = self.orb_high
             state_log['orb_low'] = self.orb_low
         
-        elif current_time_time >= orb_end_time and current_time_time < self.trading_end:
-             if not self.orb_high:
-                 # Should have formed, but maybe data missing
-                 state_log['status'] = 'ORB_FAILED'
-             else:
-                 state_log['status'] = 'TRADING'
-                 
-                 # Generate Signal checks
-                 signal = self._check_entry(latest, ema20, atr14)
-                 if signal:
-                      # Add AI Filter
-                      if replaying:
-                          # Skip AI during replay to save quota and avoid old order triggers
-                          self.db_store.insert_strategy_state(current_time, state_log)
-                          return None
+        elif current_time_time >= orb_end_time:
+             if current_time_time < self.trading_end:
+                 if not self.orb_high:
+                     # Should have formed, but maybe data missing
+                     state_log['status'] = 'ORB_FAILED'
+                 else:
+                     state_log['status'] = 'TRADING'
+                     
+                     # Periodically log monitoring status (every 10 mins)
+                     if not replaying and current_time_time.second == 0 and current_time_time.minute % 10 == 0:
+                         logger.info(f"Monitoring breakout for {active_window_start} session. Range: {self.orb_low} - {self.orb_high}. Price: {latest['close']}")
 
-                      context = {
-                          'time': str(current_time),
-                          'signal': signal['base_signal'],
-                          'market_data': {
-                              'close': latest['close'],
-                              'atr14': atr14,
-                              'ema20': ema20,
-                              'dist_orb_high': latest['close'] - self.orb_high,
-                              'dist_orb_low': self.orb_low - latest['close']
-                          },
-                          'pnl': 0.0,
-                          'risk_state': {} 
-                      }
-                      
-                      ai_result = self.ai_filter.analyze_signal(context)
-                      signal['ai_decision'] = ai_result['decision']
-                      signal['ai_rationale'] = ai_result['rationale']
-                      signal['raw_json'] = ai_result.get('raw_json', '')
-                      
-                      if signal['ai_decision'] == 'DENY':
-                          logger.info(f"Signal Denied by AI: {ai_result['rationale']}")
-                          signal = None
-                      else:
-                          logger.info(f"Signal Approved by AI ({signal['ai_decision']})")
-                          state_log['active_signal_id'] = signal['signal_id']
-                          # Explicitly save signal to DB for dashboard
-                          self.db_store.insert_signal(signal)
+                     # Generate Signal checks
+                     signal = self._check_entry(latest, ema20, atr14)
+                     if signal:
+                          # Add AI Filter
+                          if replaying:
+                              # Skip AI during replay to save quota and avoid old order triggers
+                              self.db_store.insert_strategy_state(current_time, state_log)
+                              return None
+
+                          context = {
+                              'time': str(current_time),
+                              'signal': signal['base_signal'],
+                              'market_data': {
+                                  'close': latest['close'],
+                                  'atr14': atr14,
+                                  'ema20': ema20,
+                                  'dist_orb_high': latest['close'] - self.orb_high,
+                                  'dist_orb_low': self.orb_low - latest['close']
+                              },
+                              'pnl': 0.0,
+                              'risk_state': {} 
+                          }
+                          
+                          ai_result = self.ai_filter.analyze_signal(context)
+                          signal['ai_decision'] = ai_result['decision']
+                          signal['ai_rationale'] = ai_result['rationale']
+                          signal['raw_json'] = ai_result.get('raw_json', '')
+                          
+                          if signal['ai_decision'] == 'DENY':
+                              logger.info(f"Signal Denied by AI: {ai_result['rationale']}")
+                              signal = None
+                          else:
+                              logger.info(f"Signal Approved by AI ({signal['ai_decision']})")
+                              state_log['active_signal_id'] = signal['signal_id']
+                              # Explicitly save signal to DB for dashboard
+                              self.db_store.insert_signal(signal)
+             else:
+                 # Past trading end
+                 if not replaying and current_time_time.second == 0 and current_time_time.minute % 5 == 0: # Reduce log spam
+                     logger.debug(f"Time {current_time_time} is past Trading End {self.trading_end}. Window {active_window_start} ignored.")
+                 state_log['status'] = 'WAITING'
 
         self.db_store.insert_strategy_state(current_time, state_log)
         return signal

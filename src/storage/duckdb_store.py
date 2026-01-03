@@ -115,15 +115,23 @@ class DuckDBStore:
                 ema20 DOUBLE,
                 atr14 DOUBLE,
                 current_state VARCHAR,
-                active_signal_id VARCHAR
+                active_signal_id VARCHAR,
+                active_window VARCHAR
             )
         """)
+        
+        # Migration: Add active_window if not exists
+        try:
+            conn.execute("ALTER TABLE strategy_state ADD COLUMN active_window VARCHAR")
+        except:
+            pass # Already exists
 
         conn.close()
 
     def insert_bar(self, bar_data: dict):
         self._execute_query("""
-            INSERT OR IGNORE INTO bars_1m (time, open, high, low, close, volume)
+            INSERT OR IGNORE INTO bars_1m 
+            (time, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
             bar_data['time'], bar_data['open'], bar_data['high'], 
@@ -189,8 +197,8 @@ class DuckDBStore:
     def insert_strategy_state(self, ts: datetime, state_data: dict):
         self._execute_query("""
             INSERT INTO strategy_state
-            (timestamp, orb_high, orb_low, ema20, atr14, current_state, active_signal_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (timestamp, orb_high, orb_low, ema20, atr14, current_state, active_signal_id, active_window)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             ts,
             state_data.get('orb_high'),
@@ -198,7 +206,8 @@ class DuckDBStore:
             state_data.get('ema20'),
             state_data.get('atr14'),
             state_data.get('status'),
-            state_data.get('signal_id')
+            state_data.get('signal_id'),
+            str(state_data.get('active_window')) if state_data.get('active_window') else None
         ))
 
     def get_recent_bars(self, limit=100):
